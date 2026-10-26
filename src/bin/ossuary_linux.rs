@@ -4,22 +4,14 @@
 // References: [LIB-01], [LIB-02]
 //==============================================================================
 
-
 // Import command-line argument parsing traits and macros from the clap crate
 use clap::{Parser, CommandFactory};
-// Import filesystem metadata and path handling tools from the standard library
-use std::fs;
 // Import string handling utilities
 use std::str;
 // Import standard I/O library types and error handling definitions
 use std::io;
-// Import threading utilities for timing/sleep operations
-use std::thread;
-// Import Duration for managing sleep delays between teardown steps
-use std::time::Duration;
 // Import shared helper functions from library crate
 use ossuary::{run_command, run_and_capture};
-
 
 /// CLI arguments structure parsed via `clap` to handle user input flags.
 #[derive(Parser, Debug)]
@@ -53,7 +45,6 @@ struct Args {
     version: Option<bool>,
 }
 
-
 /// Verifies that the program is being executed with root (UID 0) privileges.
 /// Prints help text and exits with an error if run as a standard user.
 fn check_root() {
@@ -71,6 +62,17 @@ fn find_free_loopback_device() -> Result<String, io::Error> {
     Ok(output.trim().to_string())
 }
 
+/// Finds the active loop device associated with the container image (`losetup -j`)[cite: 14].
+fn find_loop_device_for_container(container: &str) -> Result<String, io::Error> {
+    let output = run_and_capture(&["losetup", "-j", container])?;
+    if let Some(line) = output.lines().next() {
+        if let Some(dev) = line.split(':').next() {
+            return Ok(dev.trim().to_string());
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::NotFound, "Loop device not found for container."))
+}
+
 /// Mounts a LUKS container
 fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     let loop_device = find_free_loopback_device()?;
@@ -84,7 +86,7 @@ fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
 fn umount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     run_command(&["umount", mountpoint])?;
     run_command(&["cryptsetup", "luksClose", "luks"])?;
-    let loop_device = find_free_loopback_device()?;
+    let loop_device = find_loop_device_for_container(container)?;
     run_command(&["losetup", "-d", &loop_device])?;
     Ok(())
 }
