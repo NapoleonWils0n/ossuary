@@ -10,6 +10,10 @@ path = "src/lib.rs"
 name = "ossuary"
 path = "src/bin/ossuary.rs"
 
+[[bin]]
+name = "ossuary_linux"
+path = "src/bin/ossuary_linux.rs"
+
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
 libc = "0.2"
