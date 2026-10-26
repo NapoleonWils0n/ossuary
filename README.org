@@ -1,0 +1,682 @@
+#+STARTUP: content
+* ossuary encrypted container for Freebsd, Linux and Openbsd
+
+** Cargo Initialization
+
+After entering the Nix development environment for the first time, you must initialize the Rust project structure.
+
+*** Initialize the Project
+
+Run cargo init to generate the necessary Rust configuration files and directory structure within the current folder.
+
+#+begin_src sh
+cargo init .
+#+end_src
+
+Note: This command creates a Cargo.toml file and a src/ directory with a default main.rs.
+
+*** Staging Project Files
+
+This will automatically create a git repository
+
+Once initialized, you need to track the following essential files in your git repository:
+
+#+begin_example
+.gitignore
+Cargo.toml
+src/
+#+end_example
+
+*** Git Setup
+
+Stage all the newly created files:
+
+#+begin_src sh
+git add .
+#+end_src
+
+Finalize the initialization with an initial commit:
+
+#+begin_src sh
+git commit -m 'project init'
+#+end_src
+
+*** gitignore
+
+a .gitignore file will be created
+
+#+begin_example
+.gitignore
+#+end_example
+
+with the following content
+
+#+begin_src sh
+/target
+#+end_src
+
+we need to edit the .gitignore 
+
+#+begin_src sh
+vi .gitignore
+#+end_src
+
+and a new line to exclude the results symlink
+
+#+begin_src sh
+/target
+/result*
+#+end_src
+
+check the git status
+
+#+begin_src sh
+git status
+#+end_src
+
+and then commit the changes
+
+#+begin_src sh
+git add .gitignore
+#+end_src
+
+and add a commit message
+
+#+begin_src sh
+git commit -m "update .gitignore to exclude build results"
+#+end_src
+
+*** Build the project using Cargo.
+
+Change directory into the ossuary git repository.
+
+#+begin_src sh
+cd ossuary
+#+end_src
+
+Build the project with Cargo.
+
+#+begin_src sh
+cargo build --release
+#+end_src
+
+When you run cargo build --release,
+Rust places the binaries in target/release/
+
+Use fd to copy the scripts to the bin directory in your home.
+
+#+begin_src sh
+fd . target/release --max-depth 1 --type executable --exec cp {} ~/bin/
+#+end_src
+
+remove the the ffmpeg_rust_scripts file which isnt needed
+
+#+begin_src sh
+rm -i ~/bin/ffmpeg_rust_scripts
+#+end_src
+
+** Freebsd
+*** Load geli Support
+
+Support for geli is available as a loadable kernel module. To configure the system to automatically load the module at boot time, add the following line to /boot/loader.conf:
+
+#+BEGIN_SRC sh
+geom_eli_load="YES"
+#+END_SRC
+
+*** create virtual container with dd
+
+create a 128mb container with dd on the Desktop called disk.img
+
+#+BEGIN_SRC sh
+cd ~/Desktop
+#+END_SRC
+
+use dd to create a 128mb disk image
+
+#+BEGIN_SRC sh
+dd if=/dev/zero of=disk.img bs=1M count=128
+#+END_SRC
+
+*** mount the image with mdconfig
+
+use mdconfig to mount the disk image
+
+#+BEGIN_SRC sh
+doas mdconfig -a -t vnode -f disk.img -u 0
+#+END_SRC
+
+Here, the -a option forces the disk mounting, -t vnode is used for opening a regular file, and the path of this file is specified after -f. The -u 0 option set the virtual disk identifier to use, in this case /dev/md0.
+
+*** Generate the Master Key
+
+create directory to store geli key
+
+#+BEGIN_SRC sh
+mkdir -p ~/.config/ossuary
+#+END_SRC
+
+Now we want to create a key for GELI to encrypt with, and attach it to our disk image device:
+
+#+BEGIN_SRC sh
+dd if=/dev/zero of=/home/djwilcox/.config/ossuary/ossuary.key bs=256 count=1
+doas geli init -e aes -l 256 -s 4096 -K /home/djwilcox/.config/ossuary/ossuary.key /dev/md0
+geli attach -k /home/djwilcox/.config/ossuary/ossuary.key /dev/md0
+#+END_SRC
+
+Enter passphrase:
+
+*** Create the ZFS File System
+
+Next, format the device with the ZFS file system and mount it on an existing mount point:
+
++ use dd to write random data to geli container before adding file system
+
+#+BEGIN_SRC sh
+doas dd if=/dev/random of=/dev/md0.eli bs=1M
+#+END_SRC
+
++ To create a simple, non-redundant pool using a single disk device:
+
+#+BEGIN_SRC sh
+doas zpool create crypt /dev/md0.eli
+#+END_SRC
+
++ add compression and duplication to the zfs pool
+
+#+BEGIN_SRC sh
+doas zfs set compression=lz4 crypt
+#+END_SRC
+
++ zfs set mount point
+
+#+BEGIN_SRC sh
+doas zfs set mountpoint=/home/djwilcox/mnt crypt
+#+END_SRC
+
++ change the permission on the container
+
+#+BEGIN_SRC sh
+doas chown -R djwilcox:djwilcox /home/djwilcox/mnt
+#+END_SRC
+
++ chmod the ~/mnt directory
+
+#+begin_src sh
+chmod 700 ~/mnt
+#+end_src
+
+Finally, when you want to unmount, we also want to detach from GELI and detach from md:
+
++ zfs unmount
+
+#+BEGIN_SRC sh
+doas zfs umount crypt
+#+END_SRC
+
++ zpool export
+
+#+begin_src sh
+doas zpool export crypt
+#+end_src
+
++ geli detach
+
+#+BEGIN_SRC sh
+doas geli detach md0.eli
+#+END_SRC
+
++ mdconfig free loop device
+
+#+BEGIN_SRC sh
+doas mdconfig -d -u 0
+#+END_SRC
+
+*** manually mounting and unmounting
+**** mount
+
+use mdconfig to mount the encrypted container to /dev/md0
+
+#+BEGIN_SRC sh
+doas mdconfig -a -t vnode -f disk.img -u 0
+#+END_SRC
+
++ use geli with the path to the key and device
+
+#+BEGIN_SRC sh
+doas geli attach -k /home/djwilcox/.config/ossuary/ossuary.key /dev/md0
+#+END_SRC
+
++ we need to import the zpool which will also mount the container
+
+#+BEGIN_SRC sh
+doas zpool import crypt
+#+END_SRC
+
+**** umount
+
+unmount the zfs pool
+
+#+BEGIN_SRC sh
+doas zfs umount crypt
+#+END_SRC
+
++ we need to export the zfs pool before we use geli detach, otherwise geli thinks the device is busy
+
+#+BEGIN_SRC sh
+doas zpool export crypt
+#+END_SRC
+
++ use geli to detach the encrypted device
+
+#+BEGIN_SRC sh
+doas geli detach md0.eli
+#+END_SRC
+
++ free the loop device
+
+#+BEGIN_SRC sh
+doas mdconfig -d -u 0
+#+END_SRC
+	
+** Linux
+*** luks encrypted container
+**** create a container wth dd on the desktop called crypt
+
+#+begin_src sh
+cd ~/Desktop
+#+end_src
+
+create a 128mb disk image
+
+#+begin_src sh
+dd if=/dev/urandom of=crypt bs=1M count=128
+#+end_src
+
+**** rename the file and give it a file extension to disguise it
+
+#+begin_src sh
+mv crypt disk.iso 
+#+end_src
+
+**** find a free loop device to mount the file
+
+#+begin_src sh
+doas losetup -f
+#+end_src
+
+the free loop device is /dev/loop0 in this case
+if you have a different free loop device use that number
+
+**** use the block device and the path to the file you just created
+
+#+begin_src sh
+doas losetup /dev/loop0 disk.iso
+#+end_src
+
+create the luks container inside the file
+you will be prompted to enter a password for the new luks container
+
+#+begin_src sh
+doas cryptsetup luksFormat /dev/loop0
+#+end_src
+
+**** check the file is now an encrypted luks container
+
+#+begin_src sh
+file disk.iso
+#+end_src
+
+map the luks container to the loop device
+and give it a luks alias in this case luks
+
+#+begin_src sh
+doas cryptsetup luksOpen /dev/loop0 luks
+#+end_src
+
+**** format the container as ext4
+
+#+begin_src sh
+doas mkfs.ext4 /dev/mapper/luks
+#+end_src
+
+**** mount the file
+
+#+begin_src sh
+mkdir -p ~/mnt
+#+end_src
+
+#+begin_src sh
+doas mount /dev/mapper/luks ~/mnt
+#+end_src
+
+**** change ownership on container to the current user
+
+#+begin_src sh
+cd ~/mnt
+#+end_src
+
+nixos
+
+#+begin_src sh
+doas chown -R ${USER}:users .
+#+end_src
+
+debian
+
+#+begin_src sh
+doas chown -R ${USER}:${USER} .
+#+end_src
+
+
+#+begin_src sh
+cd ~/Desktop/
+#+end_src
+
+**** umount the file
+
+#+begin_src sh
+doas umount ~/mnt
+#+end_src
+
+**** close the luks container
+
+#+begin_src sh
+doas cryptsetup luksClose luks
+#+end_src
+
+**** free the loop device
+
+#+begin_src sh
+doas losetup -d /dev/loop0
+#+end_src
+
+**** open luks encrypted container
+
+#+begin_src sh
+doas losetup -f
+doas losetup /dev/loop0 disk.iso
+doas cryptsetup luksOpen /dev/loop0 luks
+doas mkdir -p ~/mnt
+doas mount /dev/mapper/luks ~/mnt
+#+end_src
+
+**** umount luks encrypted container
+
+#+begin_src sh
+doas umount ~/mnt
+doas cryptsetup luksClose luks
+doas losetup -d /dev/loop0
+#+end_src
+
+** Openbsd
+*** encrypted device openbsd
+**** list disks
+
+list disknames
+
+#+begin_src sh
+sysctl hw.disknames
+#+end_src
+
+Detailed Hardware Model & Size Information
+
+#+begin_src sh
+dmesg | grep -E '^(sd|wd|nvme|cd)[0-9]'
+#+end_src
+
+list active softraid volumes
+
+#+begin_src sh
+doas bioctl softraid0
+#+end_src
+
+**** use dd to create a 128mb disk image
+
+#+BEGIN_SRC sh
+dd if=/dev/zero of=disk.img bs=1M count=128
+#+END_SRC
+
+**** attach vnd loopback device
+
+list attached loopback devices
+
+#+begin_src sh
+doas vnconfig -l
+#+end_src
+
+attach disk.img to a vnd loopback device
+
+#+BEGIN_SRC sh
+doas vnconfig vnd0 disk.img
+#+END_SRC
+
+check the disk.img is attached
+
+#+begin_src sh
+doas vnconfig -l
+#+end_src
+
+**** initialize MBR and RAID partition on vnd0
+
+Initialize default MBR partition table:
+
+#+BEGIN_SRC sh
+doas fdisk -iy vnd0
+#+END_SRC
+
+Write a disklabel spanning all free space as a RAID partition
+
+#+BEGIN_SRC sh
+echo 'RAID *' | doas disklabel -wAT- vnd0
+#+END_SRC
+
+**** bioctl
+
+initialize softraid crypto volume
+
+Passphrase authentication
+
+#+BEGIN_SRC sh
+doas bioctl -c C -l vnd0a softraid0
+#+END_SRC
+
+Note the softraid pseudo-disk device name created in the output (e.g., sd2).
+
+Attach an existing volume later:
+
+#+BEGIN_SRC sh
+doas bioctl -c C -l vnd0a softraid0
+#+END_SRC
+
+**** newfs
+
+Initialize an OpenBSD disklabel on the softraid volume (~sd2~) spanning partition ~a~:
+
+#+BEGIN_SRC sh
+doas disklabel -wA sd2
+#+END_SRC
+
+check the partion exists
+
+#+begin_src sh
+ls -l /dev/rsd2a
+#+end_src
+
+Format partition ~a~ with FFS (Fast File System):
+
+#+BEGIN_SRC sh
+doas newfs /dev/rsd2a
+#+END_SRC
+
+**** mount
+
+#+BEGIN_SRC sh
+mkdir -p ~/mnt
+doas mount /dev/sd2a /home/djwilcox/mnt
+#+END_SRC
+
+change the permissions
+
+#+begin_src sh
+doas chown -R djwilcox:djwilcox /home/djwilcox/mnt
+#+end_src
+
+Verify mount status:
+
+#+BEGIN_SRC sh
+df -h ~/mnt
+#+END_SRC
+
+**** unmount
+
+Unmount the file system
+
+#+begin_src sh
+doas umount /home/djwilcox/mnt
+#+end_src
+
+detach the softraid crypto volume
+
+#+begin_src sh
+doas bioctl -d sd2
+#+end_src
+
+unconfigure the loopback device:
+
+#+BEGIN_SRC sh
+doas vnconfig -u vnd0
+#+END_SRC
+
+**** ossuary script
+
+#+begin_src sh
+#!/bin/sh
+
+#===============================================================================
+# ossuary
+#
+# openbsd encrypted container
+#===============================================================================
+
+
+#===============================================================================
+# script usage
+#===============================================================================
+
+usage () {
+# if argument passed to function echo it
+[ -z "${1}" ] || echo "! ${1}"
+echo "\
+$(basename "$0") -m mount -f container
+$(basename "$0") -m umount"
+exit 1
+}
+
+#===============================================================================
+# error messages
+#===============================================================================
+
+ROOT_ERR="$(basename "$0") must be run as root"
+WRONG_ARGS_ERR='wrong number of arguments passed to script'
+INVALID_OPT_ERR='Invalid option:'
+REQ_ARG_ERR='requires an argument'
+
+
+#===============================================================================
+# check if script is run as root
+#===============================================================================
+
+[ "$(id -u)" -eq 0 ] || usage "${ROOT_ERR}"
+
+
+#===============================================================================
+# check number of aruments passed to script
+#===============================================================================
+
+[ $# -gt 0 ] || usage "${WRONG_ARGS_ERR}"
+
+
+#===============================================================================
+# variables
+#===============================================================================
+
+# mount point
+mount_point='/home/djwilcox/mnt'
+
+# vnode and device names
+vnode='vnd0'
+device='sd2'
+
+# derived partition nodes
+vnode_partition="${vnode}a"
+device_partition="/dev/${device}a"
+
+
+#===============================================================================
+# getopts check options passed to script
+#===============================================================================
+
+while getopts ':m:f:h' opt
+do
+  case ${opt} in
+     m) action="${OPTARG}";;
+     f) container="${OPTARG}";;
+     h) usage;;
+     \?) usage "${INVALID_OPT_ERR} ${OPTARG}" 1>&2;;
+     :) usage "${INVALID_OPT_ERR} ${OPTARG} ${REQ_ARG_ERR}" 1>&2;;
+  esac
+done
+shift $((OPTIND-1))
+
+
+#===============================================================================
+# functions
+#===============================================================================
+
+# mount function
+mount_container () {
+    # check if container exists
+    [ -n "${container}" ] || usage "Container path required (-f)"
+    [ -f "${container}" ] || usage "Container file not found"
+
+    # check if mount point exists
+    [ -d "${mount_point}" ] || usage "Mount point directory does not exist: ${mount_point}"
+
+    # attach the container to a vnd loopback device
+    vnconfig "${vnode}" "${container}" || exit 1
+
+    # Attach the volume
+    bioctl -c C -l "${vnode_partition}" softraid0 || { vnconfig -u "${vnode}"; exit 1; }
+
+    # mount the device
+    mount "${device_partition}" "${mount_point}" || { bioctl -d "${device}"; vnconfig -u "${vnode}"; exit 1; }
+
+}
+
+# umount function
+umount_container () {
+    # check if mount point exists
+    [ -d "${mount_point}" ] || usage "Mount point directory does not exist: ${mount_point}"
+
+    # unmount device
+    umount "${mount_point}" || exit 1
+
+    # detach the softraid crypto volume
+    bioctl -d "${device}"
+
+    # unconfigure the loopback device
+    vnconfig -u "${vnode}"
+}
+
+#===============================================================================
+# mount and umount case statement
+#===============================================================================
+
+case "${action}" in
+    mount) mount_container;;
+    umount) umount_container;;
+    ,*) usage;;
+esac
+#+end_src
+
