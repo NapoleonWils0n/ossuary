@@ -67,25 +67,25 @@ fn check_root() {
 
 /// Finds a free loopback device using losetup -f
 fn find_free_loopback_device() -> Result<String, io::Error> {
-    let output = run_and_capture("losetup", &["-f"])?;
+    let output = run_and_capture(&["losetup", "-f"])?;
     Ok(output.trim().to_string())
 }
 
 /// Mounts a LUKS container
 fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     let loop_device = find_free_loopback_device()?;
-    run_command("losetup", &[&loop_device, container])?;
-    run_command("cryptsetup", &["luksOpen", &loop_device, "luks"])?;
-    run_command("mount", &[&loop_device, mountpoint])?;
+    run_command(&["losetup", &loop_device, container])?;
+    run_command(&["cryptsetup", "luksOpen", &loop_device, "luks"])?;
+    run_command(&["mount", "/dev/mapper/luks", mountpoint])?;
     Ok(())
 }
 
 /// Unmounts a LUKS container
 fn umount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
-    run_command("umount", &[mountpoint])?;
-    run_command("cryptsetup", &["luksClose", "luks"])?;
+    run_command(&["umount", mountpoint])?;
+    run_command(&["cryptsetup", "luksClose", "luks"])?;
     let loop_device = find_free_loopback_device()?;
-    run_command("losetup", &["-d", &loop_device])?;
+    run_command(&["losetup", "-d", &loop_device])?;
     Ok(())
 }
 
