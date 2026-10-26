@@ -1,5 +1,5 @@
 #+STARTUP: content
-* ossuary encrypted container for Freebsd, Linux and Openbsd
+* ossuary mount encrypted container on Freebsd, Linux and Openbsd
 
 ** Cargo Initialization
 
