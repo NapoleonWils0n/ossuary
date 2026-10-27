@@ -85,20 +85,21 @@ fn find_vnode_for_container(container: &str) -> Result<String, io::Error> {
     Err(io::Error::new(io::ErrorKind::NotFound, "Vnode device for container not found."))
 }
 
-/// Helper to find the softraid sd device associated with a given vnode partition (e.g., vnd0a).
+/// Helper to find the active softraid `sd` device associated with a given vnode partition.
 fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error> {
     let output = run_and_capture(&["bioctl", "softraid0"])?;
     for line in output.lines() {
-        if line.contains(vnode_part) {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if let Some(dev) = parts.last() {
-                if dev.starts_with("sd") && dev[2..].chars().all(|c| c.is_ascii_digit()) {
-                    return Ok((*dev).to_string());
+        // Look for lines containing our vnode partition or general active crypto volumes
+        if line.contains(vnode_part) || line.contains("CRYPTO") {
+            for part in line.split_whitespace() {
+                if part.starts_with("sd") && part[2..].chars().all(|c| c.is_ascii_digit()) {
+                    return Ok(part.to_string());
                 }
             }
         }
     }
-    // Fallback: scan active softraid devices
+    
+    // Fallback: grab any active sd crypto device listed
     let output_all = run_and_capture(&["bioctl", "softraid0"])?;
     for line in output_all.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -108,13 +109,11 @@ fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error>
             }
         }
     }
+    
     Err(io::Error::new(io::ErrorKind::NotFound, "Softraid device not found for vnode."))
 }
 
-/// Mounts the OpenBSD encrypted container:
-/// 1. Attaches container to a free vnode (e.g., vnd0).
-/// 2. Unlocks/attaches softraid crypto volume (`bioctl -c C`).
-/// 3. Mounts the decrypted softraid partition (`/dev/sdXa`) to the mountpoint.
+/// Mounts the OpenBSD encrypted container with robust failure cleanup:
 fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     if !fs::metadata(container).is_ok() {
         return Err(io::Error::new(io::ErrorKind::NotFound, format!("Container file not found: {}", container)));
@@ -127,20 +126,29 @@ fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     let vnode = find_free_vnode_device()?;
     let vnode_partition = format!("{}a", vnode);
 
-    // Attach container to vnode
+    // Step 1: Attach container to vnode
     run_command(&["vnconfig", &vnode, container])?;
 
-    // Attach crypto volume via bioctl (will prompt for passphrase)
+    // Step 2: Attach crypto volume via bioctl (prompts for passphrase)
+    // If this fails (e.g. wrong password), ensure we detach the vnode immediately.
     if let Err(e) = run_command(&["bioctl", "-c", "C", "-l", &vnode_partition, "softraid0"]) {
         let _ = run_command(&["vnconfig", "-u", &vnode]);
-        return Err(e);
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Bioctl attachment failed (wrong password?): {}", e)));
     }
 
-    // Find the created softraid device (e.g., sd2)
-    let sd_device = find_softraid_device_for_vnode(&vnode_partition)?;
+    // Step 3: Find the created softraid device (e.g., sd2)
+    let sd_device = match find_softraid_device_for_vnode(&vnode_partition) {
+        Ok(dev) => dev,
+        Err(e) => {
+            // Cleanup safety net if finding the device fails
+            let _ = run_command(&["vnconfig", "-u", &vnode]);
+            return Err(e);
+        }
+    };
+
     let device_partition = format!("/dev/{}a", sd_device);
 
-    // Mount the decrypted partition
+    // Step 4: Mount the decrypted partition. If mount fails, tear down bioctl and vnode.
     if let Err(e) = run_command(&["mount", &device_partition, mountpoint]) {
         let _ = run_command(&["bioctl", "-d", &sd_device]);
         let _ = run_command(&["vnconfig", "-u", &vnode]);
