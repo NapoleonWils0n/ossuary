@@ -8,11 +8,11 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "ossuary"
-path = "src/bin/ossuary.rs"
+path = "src/bin/ossuary-freebsd.rs"
 
 [[bin]]
 name = "ossuary_linux"
-path = "src/bin/ossuary_linux.rs"
+path = "src/bin/ossuary-linux.rs"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }

@@ -1,5 +1,5 @@
 //==============================================================================
-// ossuary_linux
+// ossuary-linux
 // Description: Mount and unmount encrypted containers on Linux
 // References: [LIB-01], [LIB-02]
 //==============================================================================

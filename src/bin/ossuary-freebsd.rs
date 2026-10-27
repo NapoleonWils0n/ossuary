@@ -1,5 +1,5 @@
 //==============================================================================
-// ossuary
+// ossuary-freebsd
 // Description: Mount and unmount encrypted containers on Freebsd
 // References: [LIB-01], [LIB-02]
 //==============================================================================
