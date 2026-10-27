@@ -60,7 +60,7 @@ impl Drop for FreeBSDGuard {
     author,
     version,
     about = "Manage FreeBSD encrypted containers",
-    after_help = "Examples:\n  mount:\n    ossuary -m mount -f /path/to/container -k /path/to/key\n\n  umount:\n    ossuary -m umount -f /path/to/container\n",
+    after_help = "Examples:\n  mount:\n    ossuary -m mount -f /path/to/container -k /path/to/key\n\n  umount:\n    ossuary -m umount -f /path/to/container",
     override_usage = "ossuary -m <action> -f <container> [-k <gelikey>]"
 )]
 #[clap(disable_version_flag = true, disable_help_flag = true)]
