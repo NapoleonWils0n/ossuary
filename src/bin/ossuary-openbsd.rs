@@ -88,8 +88,9 @@ fn find_vnode_for_container(container: &str) -> Result<String, io::Error> {
 /// Helper to find the softraid sd device associated with the newly attached vnode partition.
 fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error> {
     let output = run_and_capture(&["bioctl", "softraid0"])?;
-    for line in output.lines() {
-        // Look specifically for the line referencing our vnode partition (e.g. vnd0a)
+    
+    // Search from bottom to top (rev) to find the newest matching vnode partition line
+    for line in output.lines().rev() {
         if line.contains(vnode_part) {
             for part in line.split_whitespace() {
                 if part.starts_with("sd") && part[2..].chars().all(|c| c.is_ascii_digit()) {
@@ -99,8 +100,8 @@ fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error>
         }
     }
     
-    // Fallback: Look for the most recently mentioned CRYPTO volume or scan the output carefully
-    for line in output.lines() {
+    // Fallback: Search from bottom to top for the most recent CRYPTO volume
+    for line in output.lines().rev() {
         if line.contains("CRYPTO") {
             for part in line.split_whitespace() {
                 if part.starts_with("sd") && part[2..].chars().all(|c| c.is_ascii_digit()) {
