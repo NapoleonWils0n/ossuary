@@ -26,7 +26,7 @@ use ossuary::{run_command, run_and_capture};
 #[command(
     author,
     version,
-    about = "Manage ZFS container with GELI encryption",
+    about = "Manage Freebsd encrypted containers",
     after_help = "Examples:\n  mount:\n    ossuary -m mount -f /path/to/container -k /path/to/key\n\n  umount:\n    ossuary -m umount -f /path/to/container",
     override_usage = "ossuary -m <action> -f <container> [-k <gelikey>]"
 )]

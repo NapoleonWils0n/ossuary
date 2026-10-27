@@ -18,7 +18,7 @@ use ossuary::{run_command, run_and_capture};
 #[command(
     author,
     version,
-    about = "Manage Linux container with Luks encryption",
+    about = "Manage Linux encrypted containers",
     after_help = "Examples:\n  mount:\n    ossuary -m mount -f /path/to/container -p /path/to/mountpoint\n\n  umount:\n    ossuary -m umount -f /path/to/container -p /path/to/mountpoint",
     override_usage = "ossuary -m <action> -f <container> -p <mountpoint>"
 )]
