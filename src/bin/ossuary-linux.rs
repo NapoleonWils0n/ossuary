@@ -1,6 +1,6 @@
 //==============================================================================
 // ossuary-linux
-// Description: Mount and unmount encrypted containers on Linux
+// Description: Mount and unmount encrypted containers on Linux using RAII
 // References: [LIB-01], [LIB-02]
 //==============================================================================
 
@@ -12,6 +12,41 @@ use std::str;
 use std::io;
 // Import shared helper functions from library crate
 use ossuary::{run_command, run_and_capture};
+
+/// RAII Guard responsible for automatic teardown of Linux loop devices and LUKS 
+/// mappings if mounting fails mid-way.
+struct LinuxGuard {
+    loop_device: Option<String>,
+    luks_open: bool,
+}
+
+impl LinuxGuard {
+    fn new() -> Self {
+        Self {
+            loop_device: None,
+            luks_open: false,
+        }
+    }
+
+    /// Disarms the guard when mounting succeeds so automatic cleanup is disabled.
+    fn disarm(mut self) {
+        self.loop_device = None;
+        self.luks_open = false;
+    }
+}
+
+impl Drop for LinuxGuard {
+    fn drop(&mut self) {
+        // If the LUKS mapping was opened before failure, close it first.
+        if self.luks_open {
+            let _ = run_command(&["cryptsetup", "luksClose", "luks"]);
+        }
+        // If a loop device was attached before failure, detach it.
+        if let Some(ref dev) = self.loop_device {
+            let _ = run_command(&["losetup", "-d", dev]);
+        }
+    }
+}
 
 /// CLI arguments structure parsed via `clap` to handle user input flags.
 #[derive(Parser, Debug)]
@@ -62,7 +97,7 @@ fn find_free_loopback_device() -> Result<String, io::Error> {
     Ok(output.trim().to_string())
 }
 
-/// Finds the active loop device associated with the container image (`losetup -j`)[cite: 14].
+/// Finds the active loop device associated with the container image (`losetup -j`).
 fn find_loop_device_for_container(container: &str) -> Result<String, io::Error> {
     let output = run_and_capture(&["losetup", "-j", container])?;
     if let Some(line) = output.lines().next() {
@@ -73,12 +108,24 @@ fn find_loop_device_for_container(container: &str) -> Result<String, io::Error> 
     Err(io::Error::new(io::ErrorKind::NotFound, "Loop device not found for container."))
 }
 
-/// Mounts a LUKS container
+/// Mounts a LUKS container utilizing the RAII Guard pattern for automatic cleanup.
 fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
+    // Initialize RAII guard
+    let mut guard = LinuxGuard::new();
+
     let loop_device = find_free_loopback_device()?;
     run_command(&["losetup", &loop_device, container])?;
+    guard.loop_device = Some(loop_device.clone());
+
+    // Prompts for LUKS passphrase. If wrong password / failure occurs, guard drops and detaches losetup.
     run_command(&["cryptsetup", "luksOpen", &loop_device, "luks"])?;
+    guard.luks_open = true;
+
+    // If mount fails, guard drops, closing luks and detaching losetup automatically.
     run_command(&["mount", "/dev/mapper/luks", mountpoint])?;
+
+    // Success: disarm guard so resources remain active
+    guard.disarm();
     Ok(())
 }
 
