@@ -7,11 +7,15 @@ edition = "2024"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ossuary"
+name = "ossuary-freebsd"
 path = "src/bin/ossuary-freebsd.rs"
 
 [[bin]]
-name = "ossuary_linux"
+name = "ossuary-openbsd"
+path = "src/bin/ossuary-openbsd.rs"
+
+[[bin]]
+name = "ossuary-linux"
 path = "src/bin/ossuary-linux.rs"
 
 [dependencies]
