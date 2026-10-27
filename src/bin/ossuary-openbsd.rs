@@ -85,12 +85,12 @@ fn find_vnode_for_container(container: &str) -> Result<String, io::Error> {
     Err(io::Error::new(io::ErrorKind::NotFound, "Vnode device for container not found."))
 }
 
-/// Helper to find the active softraid `sd` device associated with a given vnode partition.
+/// Helper to find the softraid sd device associated with the newly attached vnode partition.
 fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error> {
     let output = run_and_capture(&["bioctl", "softraid0"])?;
     for line in output.lines() {
-        // Look for lines containing our vnode partition or general active crypto volumes
-        if line.contains(vnode_part) || line.contains("CRYPTO") {
+        // Look specifically for the line referencing our vnode partition (e.g. vnd0a)
+        if line.contains(vnode_part) {
             for part in line.split_whitespace() {
                 if part.starts_with("sd") && part[2..].chars().all(|c| c.is_ascii_digit()) {
                     return Ok(part.to_string());
@@ -99,17 +99,17 @@ fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error>
         }
     }
     
-    // Fallback: grab any active sd crypto device listed
-    let output_all = run_and_capture(&["bioctl", "softraid0"])?;
-    for line in output_all.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if let Some(dev) = parts.last() {
-            if dev.starts_with("sd") && dev[2..].chars().all(|c| c.is_ascii_digit()) {
-                return Ok((*dev).to_string());
+    // Fallback: Look for the most recently mentioned CRYPTO volume or scan the output carefully
+    for line in output.lines() {
+        if line.contains("CRYPTO") {
+            for part in line.split_whitespace() {
+                if part.starts_with("sd") && part[2..].chars().all(|c| c.is_ascii_digit()) {
+                    return Ok(part.to_string());
+                }
             }
         }
     }
-    
+
     Err(io::Error::new(io::ErrorKind::NotFound, "Softraid device not found for vnode."))
 }
 
