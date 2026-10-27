@@ -4,10 +4,15 @@
 // References: [LIB-01], [LIB-02]
 //==============================================================================
 
+// Import command-line argument parsing traits and macros from the clap crate
 use clap::{Parser, CommandFactory};
+// Import filesystem metadata and path handling tools from the standard library
 use std::fs;
+// Import string handling utilities
 use std::str;
+// Import standard I/O library types and error handling definitions
 use std::io;
+// Import shared helper functions from library crate
 use ossuary::{run_command, run_and_capture};
 
 /// RAII Guard responsible for automatic teardown of OpenBSD devices if mounting fails mid-way.
@@ -44,6 +49,8 @@ impl Drop for ContainerGuard {
     }
 }
 
+
+/// CLI arguments structure parsed via `clap` to handle user input flags.
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -54,22 +61,28 @@ impl Drop for ContainerGuard {
 )]
 #[clap(disable_version_flag = true, disable_help_flag = true)]
 struct Args {
+    /// Action to perform: 'mount' or 'umount'
     #[arg(short = 'm', help = "Action to perform")]
     action: String,
 
+    /// Path to the container disk image file
     #[arg(short = 'f', help = "Path to the container")]
     container: String,
 
+    /// Path to the mountpoint
     #[arg(short = 'p', help = "Path to the mountpoint")]
     mountpoint: String,
 
+    /// Print help
     #[arg(short = 'h', long = "help", action = clap::ArgAction::Help)]
     help: Option<bool>,
 
+    /// Print version
     #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
     version: Option<bool>,
 }
 
+/// Verifies that the program is being executed with root (UID 0) privileges.
 fn check_root() {
     if unsafe { libc::geteuid() } != 0 {
         eprintln!("Error: must be run as root.\n");
@@ -79,6 +92,7 @@ fn check_root() {
     }
 }
 
+/// Finds a free vnode loopback device using `vnconfig -l`.
 fn find_free_vnode_device() -> Result<String, io::Error> {
     let output = run_and_capture(&["vnconfig", "-l"])?;
     for line in output.lines() {
@@ -92,6 +106,7 @@ fn find_free_vnode_device() -> Result<String, io::Error> {
     Err(io::Error::new(io::ErrorKind::NotFound, "Free vnode device not found."))
 }
 
+/// Finds the vnode device currently covering the specified container file.
 fn find_vnode_for_container(container: &str) -> Result<String, io::Error> {
     let output = run_and_capture(&["vnconfig", "-l"])?;
     for line in output.lines() {
@@ -105,6 +120,7 @@ fn find_vnode_for_container(container: &str) -> Result<String, io::Error> {
     Err(io::Error::new(io::ErrorKind::NotFound, "Vnode device for container not found."))
 }
 
+/// Helper to find the softraid sd device associated with the newly attached vnode partition.
 fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error> {
     let output = run_and_capture(&["bioctl", "softraid0"])?;
     
@@ -172,6 +188,7 @@ fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     Ok(())
 }
 
+/// Unmounts the OpenBSD encrypted container:
 fn umount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
     if !fs::metadata(mountpoint).is_ok() {
         return Err(io::Error::new(io::ErrorKind::NotFound, format!("Mount point directory does not exist: {}", mountpoint)));
@@ -188,6 +205,8 @@ fn umount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> 
     Ok(())
 }
 
+
+/// Main entry point: checks root permissions, parses arguments, and dispatches action.
 fn main() {
     check_root();
 
