@@ -1,9 +1,8 @@
 //==============================================================================
 // ossuary-freebsd
-// Description: Mount and unmount encrypted containers on Freebsd
+// Description: Mount and unmount encrypted containers on FreeBSD using RAII
 // References: [LIB-01], [LIB-02]
 //==============================================================================
-
 
 // Import command-line argument parsing traits and macros from the clap crate
 use clap::{Parser, CommandFactory};
@@ -20,13 +19,47 @@ use std::time::Duration;
 // Import shared helper functions from library crate
 use ossuary::{run_command, run_and_capture};
 
+/// RAII Guard responsible for automatic teardown of FreeBSD memory disks and GELI 
+/// encryption layers if mounting fails mid-way.
+struct FreeBSDGuard {
+    loopdevice: Option<String>,
+    loopcrypt: Option<String>,
+}
+
+impl FreeBSDGuard {
+    fn new() -> Self {
+        Self {
+            loopdevice: None,
+            loopcrypt: None,
+        }
+    }
+
+    /// Disarms the guard when mounting succeeds so automatic cleanup is disabled.
+    fn disarm(mut self) {
+        self.loopdevice = None;
+        self.loopcrypt = None;
+    }
+}
+
+impl Drop for FreeBSDGuard {
+    fn drop(&mut self) {
+        // If GELI provider was attached before failure, detach it first.
+        if let Some(ref crypt) = self.loopcrypt {
+            let _ = run_command(&["geli", "detach", crypt]);
+        }
+        // If the mdconfig memory disk was created before failure, destroy it.
+        if let Some(ref dev) = self.loopdevice {
+            let _ = run_command(&["mdconfig", "-du", dev]);
+        }
+    }
+}
 
 /// CLI arguments structure parsed via `clap` to handle user input flags.
 #[derive(Parser, Debug)]
 #[command(
     author,
     version,
-    about = "Manage Freebsd encrypted containers",
+    about = "Manage FreeBSD encrypted containers",
     after_help = "Examples:\n  mount:\n    ossuary -m mount -f /path/to/container -k /path/to/key\n\n  umount:\n    ossuary -m umount -f /path/to/container",
     override_usage = "ossuary -m <action> -f <container> [-k <gelikey>]"
 )]
@@ -53,7 +86,6 @@ struct Args {
     version: Option<bool>,
 }
 
-
 /// Verifies that the program is being executed with root (UID 0) privileges.
 /// Prints help text and exits with an error if run as a standard user.
 fn check_root() {
@@ -64,7 +96,6 @@ fn check_root() {
         std::process::exit(1);
     }
 }
-
 
 /// Queries active `mdconfig` memory disk devices to find the loop device unit 
 /// associated with the target container file. Filters out stale devices by checking 
@@ -102,7 +133,6 @@ fn get_loop_device(container: &str) -> io::Result<String> {
     Err(io::Error::new(io::ErrorKind::NotFound, "Container not found in mdconfig list."))
 }
 
-
 /// Extracts the ZFS pool name from the encrypted loop device labels using `zdb`.
 fn get_pool_name(loopcrypt: &str) -> io::Result<String> {
     let output = run_and_capture(&["zdb", "-l", loopcrypt])?;
@@ -117,12 +147,12 @@ fn get_pool_name(loopcrypt: &str) -> io::Result<String> {
     Err(io::Error::new(io::ErrorKind::NotFound, "Failed to query ZFS pool name."))
 }
 
-
-/// Handles the full container mount sequence:
+/// Handles the full container mount sequence using the RAII Guard pattern:
 /// 1. Validates that the container image and GELI key exist.
 /// 2. Attaches the container as a vnode-backed memory disk via `mdconfig`.
 /// 3. Attaches encryption using `geli` on the raw device path.
 /// 4. Queries the pool name and imports the ZFS pool.
+/// If any step fails, the guard automatically cleans up.
 fn mount_container(container: &str, gelikey: &str) -> io::Result<()> {
     if !fs::metadata(container).is_ok() {
         return Err(io::Error::new(io::ErrorKind::NotFound, format!("Container file not found: {}", container)));
@@ -132,25 +162,25 @@ fn mount_container(container: &str, gelikey: &str) -> io::Result<()> {
         return Err(io::Error::new(io::ErrorKind::NotFound, format!("GELI key not found: {}", gelikey)));
     }
 
+    // Initialize RAII guard
+    let mut guard = FreeBSDGuard::new();
+
     let loopdevice = run_and_capture(&["mdconfig", "-a", "-t", "vnode", "-f", container])?;
+    guard.loopdevice = Some(loopdevice.clone());
+
     let raw_device = format!("/dev/{}", loopdevice);
     let loopcrypt = format!("/dev/{}.eli", loopdevice);
 
-    match run_command(&["geli", "attach", "-k", gelikey, &raw_device]) {
-        Ok(_) => {
-            let poolname = get_pool_name(&loopcrypt)?;
-            run_command(&["zpool", "import", &poolname])?;
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("Error attaching GELI device: {}", e);
-            // Attempt to detach and delete the loopback device
-            let _ = run_command(&["mdconfig", "-du", &loopdevice]);
-            Err(e)
-        }
-    }
-}
+    run_command(&["geli", "attach", "-k", gelikey, &raw_device])?;
+    guard.loopcrypt = Some(loopcrypt.clone());
 
+    let poolname = get_pool_name(&loopcrypt)?;
+    run_command(&["zpool", "import", &poolname])?;
+
+    // Success: disarm guard so resources remain active
+    guard.disarm();
+    Ok(())
+}
 
 /// Handles the clean teardown and unmount sequence for an active container:
 /// 1. Identifies the active loop device linked to the container.
@@ -169,7 +199,6 @@ fn umount_container(container: &str) -> io::Result<()> {
     run_command(&["mdconfig", "-du", &loopdevice])?;
     Ok(())
 }
-
 
 /// Main entry point: checks root permissions, parses command line options, 
 /// and routes execution to either `mount_container` or `umount_container`.
