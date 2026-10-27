@@ -92,7 +92,7 @@ fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error>
         if line.contains(vnode_part) {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if let Some(dev) = parts.last() {
-                if dev.starts_with("sd") {
+                if dev.starts_with("sd") && dev[2..].chars().all(|c| c.is_ascii_digit()) {
                     return Ok((*dev).to_string());
                 }
             }
@@ -103,7 +103,7 @@ fn find_softraid_device_for_vnode(vnode_part: &str) -> Result<String, io::Error>
     for line in output_all.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if let Some(dev) = parts.last() {
-            if dev.starts_with("sd") && dev[2:].chars().all(|c| c.is_ascii_digit()) {
+            if dev.starts_with("sd") && dev[2..].chars().all(|c| c.is_ascii_digit()) {
                 return Ok((*dev).to_string());
             }
         }
