@@ -186,7 +186,7 @@ doas mdconfig -d -u 0
 ***** create a container wth dd on the desktop called crypt
 
 #+begin_src sh
-cd ~/Desktop
+cd ~/desktop
 #+end_src
 
 create a 128mb disk image
@@ -415,13 +415,13 @@ doas newfs /dev/rsd2a
 
 #+BEGIN_SRC sh
 mkdir -p ~/mnt
-doas mount /dev/sd2a /home/djwilcox/mnt
+doas mount /dev/sd2a "${HOME}/mnt"
 #+END_SRC
 
 change the permissions
 
 #+begin_src sh
-doas chown -R djwilcox:djwilcox /home/djwilcox/mnt
+doas chown -R "${USER}:${USER}" "${HOME}/mnt"
 #+end_src
 
 Verify mount status:
@@ -435,7 +435,7 @@ df -h ~/mnt
 Unmount the file system
 
 #+begin_src sh
-doas umount /home/djwilcox/mnt
+doas umount "${HOME}/mnt"
 #+end_src
 
 detach the softraid crypto volume
