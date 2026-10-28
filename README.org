@@ -19,7 +19,7 @@ geom_eli_load="YES"
 create a 128mb container with dd on the Desktop called disk.img
 
 #+BEGIN_SRC sh
-cd ~/Desktop
+cd ~/desktop
 #+END_SRC
 
 use dd to create a 128mb disk image
@@ -48,10 +48,16 @@ mkdir -p ~/.config/ossuary
 
 Now we want to create a key for GELI to encrypt with, and attach it to our disk image device:
 
+#+begin_src sh
+dd if=/dev/zero of="${HOME}/.config/ossuary/ossuary.key" bs=256 count=1
+#+end_src
+
+#+begin_src sh
+doas geli init -e aes -l 256 -s 4096 -K "${HOME}/.config/ossuary/ossuary.key" /dev/md0
+#+end_src
+
 #+BEGIN_SRC sh
-dd if=/dev/zero of=/home/djwilcox/.config/ossuary/ossuary.key bs=256 count=1
-doas geli init -e aes -l 256 -s 4096 -K /home/djwilcox/.config/ossuary/ossuary.key /dev/md0
-geli attach -k /home/djwilcox/.config/ossuary/ossuary.key /dev/md0
+geli attach -k "${HOME}/.config/ossuary/ossuary.key" /dev/md0
 #+END_SRC
 
 Enter passphrase:
@@ -81,13 +87,13 @@ doas zfs set compression=lz4 crypt
 + zfs set mount point
 
 #+BEGIN_SRC sh
-doas zfs set mountpoint=/home/djwilcox/mnt crypt
+doas zfs set mountpoint="${HOME}/mnt" crypt
 #+END_SRC
 
 + change the permission on the container
 
 #+BEGIN_SRC sh
-doas chown -R djwilcox:djwilcox /home/djwilcox/mnt
+doas chown -R "${USER}:${USER}" "${HOME}/mnt"
 #+END_SRC
 
 + chmod the ~/mnt directory
