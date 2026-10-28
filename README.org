@@ -8,7 +8,9 @@ mount encrypted containers on Freebsd, Linux and Openbsd
 *** Freebsd
 **** Load geli Support
 
-Support for geli is available as a loadable kernel module. To configure the system to automatically load the module at boot time, add the following line to /boot/loader.conf:
+Support for geli is available as a loadable kernel module.
+
+To configure the system to automatically load the module at boot time, add the following line to /boot/loader.conf:
 
 #+BEGIN_SRC sh
 geom_eli_load="YES"
@@ -50,13 +52,19 @@ mkdir -p ~/.config/ossuary
 
 Now we want to create a key for GELI to encrypt with, and attach it to our disk image device:
 
+create the key with dd
+
 #+begin_src sh
 dd if=/dev/zero of="${HOME}/.config/ossuary/ossuary.key" bs=256 count=1
 #+end_src
 
+geli init
+
 #+begin_src sh
 doas geli init -e aes -l 256 -s 4096 -K "${HOME}/.config/ossuary/ossuary.key" /dev/md0
 #+end_src
+
+geli attach
 
 #+BEGIN_SRC sh
 geli attach -k "${HOME}/.config/ossuary/ossuary.key" /dev/md0
@@ -142,7 +150,7 @@ doas mdconfig -a -t vnode -f disk.img -u 0
 + use geli with the path to the key and device
 
 #+BEGIN_SRC sh
-doas geli attach -k /home/djwilcox/.config/ossuary/ossuary.key /dev/md0
+doas geli attach -k "${HOME}/.config/ossuary/ossuary.key" /dev/md0
 #+END_SRC
 
 + we need to import the zpool which will also mount the container
