@@ -1,13 +1,12 @@
 #+STARTUP: show2levels
 * ossuary 
+** Project
 
 mount encrypted containers on Freebsd, Linux and Openbsd
 
-** Cargo Initialization
-
-After entering the Nix development environment for the first time, you must initialize the Rust project structure.
-
-*** Initialize the Project
+** Build
+*** Cargo Initialization
+**** Initialize the Project
 
 Run cargo init to generate the necessary Rust configuration files and directory structure within the current folder.
 
@@ -17,7 +16,7 @@ cargo init .
 
 Note: This command creates a Cargo.toml file and a src/ directory with a default main.rs.
 
-*** Staging Project Files
+**** Staging Project Files
 
 This will automatically create a git repository
 
@@ -29,7 +28,7 @@ Cargo.toml
 src/
 #+end_example
 
-*** Git Setup
+**** Git Setup
 
 Stage all the newly created files:
 
@@ -43,7 +42,7 @@ Finalize the initialization with an initial commit:
 git commit -m 'project init'
 #+end_src
 
-*** gitignore
+**** gitignore
 
 a .gitignore file will be created
 
@@ -88,7 +87,7 @@ and add a commit message
 git commit -m "update .gitignore to exclude build results"
 #+end_src
 
-*** Build the project using Cargo.
+**** Build the project using Cargo.
 
 Change directory into the ossuary git repository.
 
