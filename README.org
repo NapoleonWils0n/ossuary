@@ -105,18 +105,6 @@ cargo build --release
 When you run cargo build --release,
 Rust places the binaries in target/release/
 
-Use fd to copy the scripts to the bin directory in your home.
-
-#+begin_src sh
-fd . target/release --max-depth 1 --type executable --exec cp {} ~/bin/
-#+end_src
-
-remove the the ffmpeg_rust_scripts file which isnt needed
-
-#+begin_src sh
-rm -i ~/bin/ffmpeg_rust_scripts
-#+end_src
-
 ** Freebsd
 *** Load geli Support
 
