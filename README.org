@@ -22,11 +22,7 @@ mkdir -p ~/mnt
 
 **** create virtual container with dd
 
-create a 128mb container with dd on the Desktop called disk.img
-
-#+BEGIN_SRC sh
-cd ~/desktop
-#+END_SRC
+create a 128mb container with dd called disk.img
 
 use dd to create a 128mb disk image
 
@@ -183,11 +179,7 @@ doas mdconfig -d -u 0
 	
 *** Linux
 **** luks encrypted container
-***** create a container wth dd on the desktop called crypt
-
-#+begin_src sh
-cd ~/desktop
-#+end_src
+***** create a container wth dd called crypt
 
 create a 128mb disk image
 
@@ -268,11 +260,6 @@ debian
 
 #+begin_src sh
 doas chown -R ${USER}:${USER} .
-#+end_src
-
-
-#+begin_src sh
-cd ~/Desktop/
 #+end_src
 
 ***** umount the file
