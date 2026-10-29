@@ -18,6 +18,7 @@ use ossuary::{run_command, run_and_capture};
 struct LinuxGuard {
     loop_device: Option<String>,
     luks_open: bool,
+    luks_name: Option<String>,
 }
 
 impl LinuxGuard {
@@ -25,6 +26,7 @@ impl LinuxGuard {
         Self {
             loop_device: None,
             luks_open: false,
+            luks_name: None,
         }
     }
 
@@ -32,14 +34,17 @@ impl LinuxGuard {
     fn disarm(mut self) {
         self.loop_device = None;
         self.luks_open = false;
+        self.luks_name = None;
     }
 }
 
 impl Drop for LinuxGuard {
     fn drop(&mut self) {
-        // If the LUKS mapping was opened before failure, close it first.
+        // If the LUKS mapping was opened before failure, close it using its dynamic name.
         if self.luks_open {
-            let _ = run_command(&["cryptsetup", "luksClose", "luks"]);
+            if let Some(ref name) = self.luks_name {
+                let _ = run_command(&["cryptsetup", "luksClose", name]);
+            }
         }
         // If a loop device was attached before failure, detach it.
         if let Some(ref dev) = self.loop_device {
@@ -108,33 +113,57 @@ fn find_loop_device_for_container(container: &str) -> Result<String, io::Error> 
     Err(io::Error::new(io::ErrorKind::NotFound, "Loop device not found for container."))
 }
 
-/// Mounts a LUKS container utilizing the RAII Guard pattern for automatic cleanup.
+/// Helper to extract the LUKS UUID from an attached loop device.
+fn get_luks_uuid(loop_device: &str) -> Result<String, io::Error> {
+    let output = run_and_capture(&["cryptsetup", "luksUUID", loop_device])?;
+    let uuid = output.trim().to_string();
+    if uuid.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::Other, "Failed to retrieve LUKS UUID."));
+    }
+    Ok(uuid)
+}
+
+/// Mounts a LUKS container using its unique LUKS UUID as the device-mapper name.
 fn mount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
-    // Initialize RAII guard
     let mut guard = LinuxGuard::new();
 
     let loop_device = find_free_loopback_device()?;
     run_command(&["losetup", &loop_device, container])?;
     guard.loop_device = Some(loop_device.clone());
 
-    // Prompts for LUKS passphrase. If wrong password / failure occurs, guard drops and detaches losetup.
-    run_command(&["cryptsetup", "luksOpen", &loop_device, "luks"])?;
+    // Dynamically query the unique LUKS UUID from the container header
+    let uuid = get_luks_uuid(&loop_device)?;
+    let luks_name = format!("ossuary-{}", uuid);
+    guard.luks_name = Some(luks_name.clone());
+
+    // Prompts for passphrase using the unique mapping name
+    run_command(&["cryptsetup", "luksOpen", &loop_device, &luks_name])?;
     guard.luks_open = true;
 
-    // If mount fails, guard drops, closing luks and detaching losetup automatically.
-    run_command(&["mount", "/dev/mapper/luks", mountpoint])?;
+    let mapper_path = format!("/dev/mapper/{}", luks_name);
+    run_command(&["mount", &mapper_path, mountpoint])?;
 
-    // Success: disarm guard so resources remain active
     guard.disarm();
     Ok(())
 }
 
-/// Unmounts a LUKS container
+/// Unmounts a LUKS container by dynamically looking up its UUID via its loop device.
 fn umount_container(container: &str, mountpoint: &str) -> Result<(), io::Error> {
-    run_command(&["umount", mountpoint])?;
-    run_command(&["cryptsetup", "luksClose", "luks"])?;
+    // Find the loop device currently bound to this container
     let loop_device = find_loop_device_for_container(container)?;
+    
+    // Query its UUID so we know the exact device-mapper name to close
+    let uuid = get_luks_uuid(&loop_device)?;
+    let luks_name = format!("ossuary-{}", uuid);
+    let mapper_path = format!("/dev/mapper/{}", luks_name);
+
+    // Reference mapper_path to avoid unused variable warning
+    let _ = mapper_path;
+
+    run_command(&["umount", mountpoint])?;
+    run_command(&["cryptsetup", "luksClose", &luks_name])?;
     run_command(&["losetup", "-d", &loop_device])?;
+
     Ok(())
 }
 
